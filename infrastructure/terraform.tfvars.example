@@ -1,0 +1,8 @@
+aws_region      = "us-east-1"
+environment     = "dev"
+project_name    = "nova-sonic-strands"
+ecr_image_tag   = "latest"
+
+# Optional: custom domain (leave empty to use CloudFront default domain)
+# domain_name     = "sonic.example.com"
+# route53_zone_id = "ZXXXXXXXXXXXXX"

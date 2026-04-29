@@ -1,0 +1,25 @@
+{
+  "name": "nova-sonic-strands-demo",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@cloudscape-design/components": "^3.0.933",
+    "@cloudscape-design/global-styles": "^1.0.32",
+    "@cloudscape-design/design-tokens": "^3.0.42",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react-swc": "^3.8.0",
+    "typescript": "^5.0.2",
+    "vite": "^6.2.6"
+  }
+}

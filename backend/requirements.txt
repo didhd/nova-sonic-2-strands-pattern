@@ -1,0 +1,7 @@
+boto3>=1.40.17
+numpy>=2.2.4
+websockets>=15.0.1
+aiohttp>=3.11.0
+requests>=2.32.3
+aws_sdk_bedrock_runtime>=0.1.0,<0.2.0
+strands-agents[bidi]>=0.1.6
