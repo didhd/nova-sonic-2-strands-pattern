@@ -14,6 +14,8 @@ from aws_sdk_bedrock_runtime.models import (
 from aws_sdk_bedrock_runtime.config import Config
 from smithy_aws_core.auth.sigv4 import SigV4AuthScheme
 from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
+from smithy_aws_core.identity.container import ContainerCredentialsResolver
+from smithy_http.aio.aiohttp import AIOHTTPClient, AIOHTTPClientConfig
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 logger = logging.getLogger(__name__)
@@ -47,13 +49,21 @@ class BedrockInteractClient:
         if self.bedrock_client is not None:
             return True
 
-        self._ensure_env_credentials()
-
         try:
+            container_uri = os.environ.get("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "")
+            if container_uri:
+                logger.info("Using ContainerCredentialsResolver (ECS environment)")
+                http_client = AIOHTTPClient(client_config=AIOHTTPClientConfig())
+                resolver = ContainerCredentialsResolver(http_client)
+            else:
+                logger.info("Using EnvironmentCredentialsResolver (local environment)")
+                self._ensure_env_credentials()
+                resolver = EnvironmentCredentialsResolver()
+
             config = Config(
                 endpoint_uri=f"https://bedrock-runtime.{self.region}.amazonaws.com",
                 region=self.region,
-                aws_credentials_identity_resolver=EnvironmentCredentialsResolver(),
+                aws_credentials_identity_resolver=resolver,
                 auth_schemes={"aws.auth#sigv4": SigV4AuthScheme(service="bedrock")},
             )
             self.bedrock_client = BedrockRuntimeClient(config=config)
