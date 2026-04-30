@@ -58,16 +58,19 @@ const STRANDS_MODELS = [
 ];
 
 const DEFAULT_PROMPT =
-  "You are a healthcare intake assistant for AnyHealth conducting patient calls. " +
-  "Keep your spoken responses short (1-2 sentences). " +
-  "Follow this workflow step by step:\n" +
-  "1. Greet the caller and ask for their full name.\n" +
-  "2. Ask for their phone number.\n" +
-  "3. Ask for their date of birth.\n" +
-  "4. Ask for the reason for their call (chief complaint).\n" +
-  "Only AFTER you have collected name, phone, and date of birth, call the externalAgent tool " +
-  "with all the gathered information. Do NOT call the tool until you have at least these three pieces of information. " +
-  "After the first tool call, continue collecting symptoms and use the tool for follow-up actions like triage or escalation.";
+  "You are a nurse triage line assistant for AnyHealth. You answer calls from patients who need medical advice.\n\n" +
+  "Call flow:\n" +
+  "1. Greet: 'Thank you for calling AnyHealth. How can I help you today?'\n" +
+  "2. Listen to their concern, then collect: full name, phone number, date of birth.\n" +
+  "3. Once you have name + phone + DOB + reason for calling, say 'Let me pull up your record' and call externalAgent.\n" +
+  "4. After registration, ask about symptoms: 'When did this start?', 'On a scale of 1 to 10, how bad is it?', 'Any other symptoms?'\n" +
+  "5. Once you have symptoms + severity, say 'Let me check the best next step for you' and call externalAgent again.\n" +
+  "6. Relay the triage result to the patient naturally.\n\n" +
+  "Rules:\n" +
+  "- Be warm and reassuring, like a real nurse triage line.\n" +
+  "- Keep responses to 1-2 short sentences.\n" +
+  "- Do NOT call the tool until you have the required info.\n" +
+  "- Always say a brief hold message before each tool call.";
 
 export default function SpeechToSpeech() {
   const [isStreaming, setIsStreaming] = useState(false);
@@ -152,18 +155,8 @@ export default function SpeechToSpeech() {
 
       if (ev.toolResult) {
         const tid = ev.toolResult.toolUseId;
-        let routedTo = "none";
-        try {
-          const r = JSON.parse(ev.toolResult.result || "{}");
-          const txt = r.result || r.message || "";
-          const toolNames = ["create_encounter", "match_patient", "update_encounter", "triage_symptoms", "find_hospital_location", "escalate_to_nurse"];
-          for (const tn of toolNames) {
-            if (txt.toLowerCase().includes(tn.replace("_", " ")) || txt.includes(tn)) { routedTo = tn; break; }
-          }
-          if (routedTo === "none" && txt.includes("ENC-")) routedTo = "create_encounter";
-          if (routedTo === "none" && txt.includes("patient_id")) routedTo = "match_patient";
-          if (routedTo === "none" && txt.includes("acuity")) routedTo = "triage_symptoms";
-        } catch { /* ignore */ }
+        const toolsCalled: string[] = ev.toolResult.toolsCalled || [];
+        const routedTo = toolsCalled.length > 0 ? toolsCalled.join(" → ") : "none";
 
         setToolInvocations((prev) =>
           prev.map((t) => t.id === tid ? { ...t, status: "done", routedTo } : t)
@@ -303,6 +296,11 @@ export default function SpeechToSpeech() {
               <Box variant="small" color="text-body-secondary">
                 Nova Sonic routes to a single <Badge color="blue">externalAgent</Badge> tool.
                 The Strands agent then orchestrates these tools:
+              </Box>
+              <Box variant="small" color="text-body-secondary" margin={{ top: "xs" }}>
+                Demo patients: <strong>John Smith</strong> (DOB 1985-03-15, +14155551234, BlueCross PPO, allergic to penicillin) |{" "}
+                <strong>Maria Garcia</strong> (DOB 1992-07-22, +14155555678, Aetna HMO) |{" "}
+                <strong>James Wilson</strong> (DOB 1978-11-30, +14155559012, Medicare Part B, diabetes type 2)
               </Box>
               <Table
                 variant="embedded"

@@ -4,18 +4,29 @@ class AudioPlayerProcessor extends AudioWorkletProcessor {
     super();
     this.buffer = [];
     this.isPlaying = false;
+    this.initialBufferLength = 4800; // 200ms at 24kHz — jitter buffer
+    this.hasStarted = false;
     this.port.onmessage = this.handleMessage.bind(this);
   }
   handleMessage(event) {
     const data = event.data;
     switch (data.type) {
       case "audio":
-        this.buffer.push(...data.audioData);
-        if (!this.isPlaying) this.isPlaying = true;
+        for (let i = 0; i < data.audioData.length; i++) {
+          this.buffer.push(data.audioData[i]);
+        }
+        if (!this.hasStarted && this.buffer.length >= this.initialBufferLength) {
+          this.isPlaying = true;
+          this.hasStarted = true;
+        }
         break;
       case "barge-in":
         this.buffer = [];
         this.isPlaying = false;
+        this.hasStarted = false;
+        break;
+      case "initial-buffer-length":
+        this.initialBufferLength = data.bufferLength;
         break;
     }
   }
@@ -23,11 +34,22 @@ class AudioPlayerProcessor extends AudioWorkletProcessor {
     const output = outputs[0];
     const channel = output[0];
     if (this.isPlaying && this.buffer.length > 0) {
-      const n = Math.min(channel.length, this.buffer.length);
-      for (let i = 0; i < n; i++) channel[i] = this.buffer.shift();
-      for (let i = n; i < channel.length; i++) channel[i] = 0;
+      const samplesToProcess = Math.min(channel.length, this.buffer.length);
+      for (let i = 0; i < samplesToProcess; i++) {
+        channel[i] = this.buffer[i];
+      }
+      this.buffer.splice(0, samplesToProcess);
+      for (let i = samplesToProcess; i < channel.length; i++) {
+        channel[i] = 0;
+      }
+      if (this.buffer.length === 0) {
+        this.isPlaying = false;
+        this.hasStarted = false;
+      }
     } else {
-      for (let i = 0; i < channel.length; i++) channel[i] = 0;
+      for (let i = 0; i < channel.length; i++) {
+        channel[i] = 0;
+      }
     }
     return true;
   }

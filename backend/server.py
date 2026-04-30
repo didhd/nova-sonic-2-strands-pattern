@@ -122,10 +122,16 @@ async def websocket_handler(request):
                             content = parsed.get("query", content)
                         except (json.JSONDecodeError, TypeError):
                             pass
-                    agent_result = await asyncio.to_thread(
+                    raw = await asyncio.to_thread(
                         STRANDS_AGENT.query, content, strands_tier, session_id
                     )
-                    result = {"result": agent_result}
+                    if isinstance(raw, dict):
+                        agent_text = raw.get("text", str(raw))
+                        tools_called = raw.get("tools_called", [])
+                    else:
+                        agent_text = str(raw)
+                        tools_called = []
+                    result = {"result": agent_text, "tools_called": tools_called}
                 else:
                     result = {"error": "agent_not_configured", "message": "Clinical agent is not available."}
             else:
@@ -145,10 +151,12 @@ async def websocket_handler(request):
         await bedrock.send_event(stream, S2sEvent.content_end(pn, tc))
 
         try:
+            tc_list = result.get("tools_called", []) if isinstance(result, dict) else []
             await ws.send_str(json.dumps({
                 "event": {"toolResult": {
                     "toolUseId": current_tool_use_id,
                     "toolName": current_tool_name,
+                    "toolsCalled": tc_list,
                     "result": content_str[:500],
                 }}
             }))

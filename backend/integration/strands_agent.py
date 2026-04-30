@@ -75,8 +75,17 @@ class StrandsAgent:
             logger.info("[%s:%s] query: %s", session_id, tier, input_text[:300])
             result = agent(input_text)
             output = str(result)
-            logger.info("[%s:%s] result: %s", session_id, tier, output[:300])
-            return output
+
+            tools_called = []
+            try:
+                for block in result.message.get("content", []):
+                    if "toolUse" in block:
+                        tools_called.append(block["toolUse"]["name"])
+            except Exception:
+                pass
+
+            logger.info("[%s:%s] result (tools=%s): %s", session_id, tier, tools_called, output[:300])
+            return {"text": output, "tools_called": tools_called}
         except Exception as e:
             error_msg = str(e)
             logger.error("[%s:%s] error: %s", session_id, tier, error_msg)

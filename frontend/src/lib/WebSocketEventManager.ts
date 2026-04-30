@@ -304,6 +304,8 @@ export class WebSocketEventManager {
 
       this.isInitialized = true;
       this.isProcessingAudio = true;
+
+      this.sendTextInput("hi");
     } catch (e) {
       console.error("Audio setup error:", e);
       this.cleanup();
