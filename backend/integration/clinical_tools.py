@@ -18,158 +18,177 @@ _patients = {
 
 
 @tool
-def register_patient(
-    first_name: str,
-    last_name: str,
-    phone: str,
-    date_of_birth: str,
-    chief_complaint: str,
-    insurance: Optional[str] = None,
+def create_encounter(
+    caller_phone: str,
+    channel: str = "inbound_call",
 ) -> dict:
-    """Register a patient and create an encounter in one step. Call this once you
-    have collected the patient's name, phone, date of birth, and reason for calling.
-
-    This will:
-    1. Create a new encounter record
-    2. Attempt to match the patient against existing records
-    3. Store the chief complaint
+    """Start a new call encounter. Call this as soon as the patient provides their phone number.
 
     Args:
-        first_name: Patient's first name
-        last_name: Patient's last name
-        phone: Phone number (any format, will be normalized)
-        date_of_birth: Date of birth (YYYY-MM-DD)
-        chief_complaint: Why the patient is calling, in their own words
-        insurance: Insurance provider name if mentioned
+        caller_phone: Patient's phone number in any format
+        channel: How the call originated - inbound_call or callback
 
     Returns:
-        dict with encounter_id, patient match result, and next steps
+        dict with encounter_id and status
     """
-    normalized_phone = "+" + "".join(c for c in phone if c.isdigit())
-    if not normalized_phone.startswith("+1") and len(normalized_phone) == 11:
-        normalized_phone = "+1" + normalized_phone[1:]
-
+    normalized = "+" + "".join(c for c in caller_phone if c.isdigit())
     encounter_id = f"ENC-{uuid.uuid4().hex[:8].upper()}"
-    encounter = {
+    _encounters[encounter_id] = {
         "encounter_id": encounter_id,
-        "caller_phone": normalized_phone,
+        "caller_phone": normalized,
         "call_start_time": datetime.now(timezone.utc).isoformat(),
+        "channel": channel,
         "status": "in_progress",
         "patient_id": None,
-        "first_name": first_name,
-        "last_name": last_name,
-        "date_of_birth": date_of_birth,
-        "chief_complaint": chief_complaint,
+        "chief_complaint": None,
         "symptoms": [],
         "triage_result": None,
     }
-    _encounters[encounter_id] = encounter
-
-    patient_match = None
-    for pid, p in _patients.items():
-        if (p["first_name"].lower() == first_name.lower()
-            and p["last_name"].lower() == last_name.lower()
-            and p.get("dob") == date_of_birth):
-            encounter["patient_id"] = pid
-            patient_match = {
-                "patient_id": pid,
-                "status": "existing_patient",
-                "insurance": p.get("insurance", "unknown"),
-                "allergies": p.get("allergies", []),
-                "conditions": p.get("conditions", []),
-            }
-            break
-
-    if not patient_match:
-        for pid, p in _patients.items():
-            if p.get("phone") == normalized_phone:
-                encounter["patient_id"] = pid
-                patient_match = {
-                    "patient_id": pid,
-                    "status": "matched_by_phone",
-                    "insurance": p.get("insurance", "unknown"),
-                    "allergies": p.get("allergies", []),
-                    "conditions": p.get("conditions", []),
-                }
-                break
-
-    if not patient_match:
-        patient_match = {"patient_id": None, "status": "new_patient"}
-
-    logger.info("Registered %s %s, encounter=%s, match=%s", first_name, last_name, encounter_id, patient_match["status"])
-    return {
-        "encounter_id": encounter_id,
-        "patient": patient_match,
-        "chief_complaint": chief_complaint,
-        "next_step": "Ask about symptoms: when did it start, severity (1-10), and any other symptoms.",
-    }
+    logger.info("Created encounter %s for %s", encounter_id, normalized)
+    return {"encounter_id": encounter_id, "status": "in_progress"}
 
 
 @tool
-def record_symptoms(
+def match_patient(
     encounter_id: str,
-    symptoms: str,
-    onset: Optional[str] = None,
-    severity: Optional[int] = None,
-    medications_tried: Optional[str] = None,
+    first_name: str,
+    last_name: str,
+    date_of_birth: str,
+    phone: Optional[str] = None,
 ) -> dict:
-    """Record the patient's symptoms and run triage assessment.
+    """Look up the patient in the system. Call this once you have name and date of birth.
 
     Args:
-        encounter_id: From register_patient
-        symptoms: Comma-separated list of symptoms (e.g., 'headache, nausea, dizziness')
-        onset: When symptoms started (e.g., '2 hours ago', 'yesterday morning')
-        severity: Pain/discomfort level 1-10
-        medications_tried: Any medications already taken (e.g., 'took ibuprofen 2 hours ago')
+        encounter_id: From create_encounter
+        first_name: Patient's first name
+        last_name: Patient's last name
+        date_of_birth: YYYY-MM-DD format
+        phone: Phone number if available
 
     Returns:
-        dict with triage result and recommended action
+        dict with patient match result, allergies, and existing conditions
+    """
+    for pid, p in _patients.items():
+        if (p["first_name"].lower() == first_name.lower()
+                and p["last_name"].lower() == last_name.lower()
+                and p.get("dob") == date_of_birth):
+            if encounter_id in _encounters:
+                _encounters[encounter_id]["patient_id"] = pid
+            return {
+                "patient_id": pid,
+                "status": "found",
+                "name": f"{p['first_name']} {p['last_name']}",
+                "insurance": p.get("insurance", "none"),
+                "allergies": p.get("allergies", []),
+                "conditions": p.get("conditions", []),
+            }
+
+    if phone:
+        normalized = "+" + "".join(c for c in phone if c.isdigit())
+        for pid, p in _patients.items():
+            if p.get("phone") == normalized:
+                if encounter_id in _encounters:
+                    _encounters[encounter_id]["patient_id"] = pid
+                return {
+                    "patient_id": pid,
+                    "status": "found_by_phone",
+                    "name": f"{p['first_name']} {p['last_name']}",
+                    "insurance": p.get("insurance", "none"),
+                    "allergies": p.get("allergies", []),
+                    "conditions": p.get("conditions", []),
+                }
+
+    return {"patient_id": None, "status": "new_patient", "message": "No existing record found. Patient will be registered as new."}
+
+
+@tool
+def update_encounter(
+    encounter_id: str,
+    chief_complaint: Optional[str] = None,
+    symptoms: Optional[str] = None,
+    symptom_onset: Optional[str] = None,
+    severity: Optional[int] = None,
+    medications_tried: Optional[str] = None,
+    notes: Optional[str] = None,
+) -> dict:
+    """Update the encounter with new information. Call this whenever the patient shares
+    new details — chief complaint, symptoms, severity, etc.
+
+    Args:
+        encounter_id: From create_encounter
+        chief_complaint: Why the patient is calling, in their words
+        symptoms: Comma-separated symptoms (e.g., 'headache, nausea')
+        symptom_onset: When symptoms started (e.g., 'yesterday', '2 hours ago')
+        severity: Pain or discomfort level 1-10
+        medications_tried: Any medications already taken
+        notes: Any other relevant notes
+
+    Returns:
+        dict with updated encounter summary
     """
     enc = _encounters.get(encounter_id)
     if not enc:
         return {"error": f"Encounter {encounter_id} not found"}
 
-    symptom_list = [s.strip().lower() for s in symptoms.split(",")]
-    enc["symptoms"] = symptom_list
-    if onset:
-        enc["symptom_onset"] = onset
+    if chief_complaint:
+        enc["chief_complaint"] = chief_complaint
+    if symptoms:
+        enc["symptoms"] = list(set(enc.get("symptoms", []) + [s.strip() for s in symptoms.split(",")]))
+    if symptom_onset:
+        enc["symptom_onset"] = symptom_onset
     if severity is not None:
         enc["severity"] = severity
     if medications_tried:
         enc["medications_tried"] = medications_tried
+    if notes:
+        enc.setdefault("notes", []).append(notes)
 
-    emergency_keywords = ["chest pain", "difficulty breathing", "severe bleeding",
-                          "unconscious", "stroke", "seizure", "allergic reaction",
-                          "suicidal", "overdose"]
-    urgent_keywords = ["high fever", "fever over 103", "persistent vomiting",
-                       "severe headache", "abdominal pain", "dehydration",
-                       "broken bone", "deep cut"]
-
-    combined = " ".join(symptom_list) + " " + (enc.get("chief_complaint") or "")
-
-    if any(kw in combined for kw in emergency_keywords):
-        acuity = "emergency"
-        action = "Tell the patient to call 911 or go to the nearest emergency room immediately."
-    elif any(kw in combined for kw in urgent_keywords) or (severity and severity >= 8):
-        acuity = "urgent"
-        action = "Transfer to a triage nurse now for immediate assessment."
-    elif severity and severity >= 5 or len(symptom_list) >= 3:
-        acuity = "semi-urgent"
-        action = "A nurse will call back within 30 minutes."
-    else:
-        acuity = "routine"
-        action = "Provide self-care advice or schedule a nurse callback within 2 hours."
-
-    enc["triage_result"] = {"acuity": acuity, "action": action}
-    logger.info("Triage %s: acuity=%s, symptoms=%s", encounter_id, acuity, symptom_list)
-
+    logger.info("Updated %s: complaint=%s symptoms=%s severity=%s", encounter_id, enc.get("chief_complaint"), enc.get("symptoms"), enc.get("severity"))
     return {
         "encounter_id": encounter_id,
-        "acuity": acuity,
-        "action": action,
-        "symptoms_recorded": symptom_list,
-        "severity": severity,
+        "chief_complaint": enc.get("chief_complaint"),
+        "symptoms": enc.get("symptoms", []),
+        "severity": enc.get("severity"),
     }
+
+
+@tool
+def triage_symptoms(
+    encounter_id: str,
+) -> dict:
+    """Run triage assessment on the encounter. Call this after symptoms and severity
+    have been recorded via update_encounter.
+
+    Args:
+        encounter_id: From create_encounter
+
+    Returns:
+        dict with acuity level and recommended action
+    """
+    enc = _encounters.get(encounter_id)
+    if not enc:
+        return {"error": f"Encounter {encounter_id} not found"}
+
+    symptoms = enc.get("symptoms", [])
+    severity = enc.get("severity")
+    complaint = enc.get("chief_complaint", "")
+    combined = " ".join(symptoms).lower() + " " + complaint.lower()
+
+    emergency = ["chest pain", "difficulty breathing", "severe bleeding", "unconscious", "stroke", "seizure", "allergic reaction", "suicidal", "overdose"]
+    urgent = ["high fever", "fever over 103", "persistent vomiting", "severe headache", "abdominal pain", "broken bone", "deep cut"]
+
+    if any(kw in combined for kw in emergency):
+        acuity, action = "emergency", "Patient must call 911 or go to the ER immediately."
+    elif any(kw in combined for kw in urgent) or (severity and severity >= 8):
+        acuity, action = "urgent", "Transfer to a triage nurse now."
+    elif (severity and severity >= 5) or len(symptoms) >= 3:
+        acuity, action = "semi-urgent", "A nurse will call back within 30 minutes."
+    else:
+        acuity, action = "routine", "Self-care advice is appropriate. A nurse can call back within 2 hours if needed."
+
+    enc["triage_result"] = {"acuity": acuity, "action": action}
+    logger.info("Triage %s: acuity=%s", encounter_id, acuity)
+    return {"acuity": acuity, "action": action, "encounter_id": encounter_id}
 
 
 @tool
@@ -178,16 +197,16 @@ def find_nearby_facility(
     city: Optional[str] = None,
     facility_type: str = "urgent_care",
 ) -> dict:
-    """Find the nearest healthcare facility. Use after triage if the patient
-    needs to visit a facility.
+    """Find the nearest healthcare facility. Call this if the patient needs
+    to visit a facility based on triage results.
 
     Args:
-        zip_code: Patient's ZIP code if known
-        city: City name if ZIP not available
+        zip_code: Patient's ZIP code
+        city: City name if ZIP not known
         facility_type: One of: emergency, urgent_care, clinic, pharmacy
 
     Returns:
-        dict with nearest facilities
+        dict with nearest facilities and contact info
     """
     facilities = {
         "emergency": [
@@ -205,8 +224,7 @@ def find_nearby_facility(
             {"name": "Walgreens", "address": "3201 Divisadero St, San Francisco, CA", "phone": "(415) 355-4000", "wait": "No wait"},
         ],
     }
-    results = facilities.get(facility_type, facilities["urgent_care"])
-    return {"facilities": results[:2], "facility_type": facility_type}
+    return {"facilities": facilities.get(facility_type, facilities["urgent_care"])[:2], "facility_type": facility_type}
 
 
 @tool
@@ -215,57 +233,46 @@ def transfer_to_nurse(
     priority: str,
     summary: str,
 ) -> dict:
-    """Transfer the call to a registered nurse. Use this after triage indicates
+    """Transfer the call to a registered nurse. Call this when triage indicates
     the patient needs to speak with a nurse.
 
     Args:
-        encounter_id: From register_patient
-        priority: One of: immediate (live transfer), callback_30min, callback_2hr
-        summary: Brief clinical summary for the nurse (who, what, severity)
+        encounter_id: From create_encounter
+        priority: One of: immediate, callback_30min, callback_2hr
+        summary: Brief summary for the nurse — who, what, how severe
 
     Returns:
-        dict with transfer status and estimated wait time
+        dict with transfer status and estimated wait
     """
     enc = _encounters.get(encounter_id)
     if enc:
         enc["status"] = "transferred"
 
     transfer_id = f"TRN-{uuid.uuid4().hex[:6].upper()}"
-    wait_times = {
-        "immediate": "Connecting now — please hold",
-        "callback_30min": "A nurse will call you back within 30 minutes",
-        "callback_2hr": "A nurse will call you back within 2 hours",
-    }
+    wait = {"immediate": "Connecting now, please hold", "callback_30min": "A nurse will call back within 30 minutes", "callback_2hr": "A nurse will call back within 2 hours"}
 
-    logger.info("Transfer %s: priority=%s, encounter=%s", transfer_id, priority, encounter_id)
-    return {
-        "transfer_id": transfer_id,
-        "priority": priority,
-        "message": wait_times.get(priority, "A nurse will be in touch soon"),
-        "summary_received": True,
-    }
+    logger.info("Transfer %s: priority=%s encounter=%s", transfer_id, priority, encounter_id)
+    return {"transfer_id": transfer_id, "priority": priority, "message": wait.get(priority, "A nurse will be in touch")}
 
 
 CLINICAL_TOOLS = [
-    register_patient,
-    record_symptoms,
+    create_encounter,
+    match_patient,
+    update_encounter,
+    triage_symptoms,
     find_nearby_facility,
     transfer_to_nurse,
 ]
 
-CLINICAL_SYSTEM_PROMPT = """You are a clinical intake agent behind a voice assistant. You receive patient information collected by the voice front-end and execute the appropriate tools. You never speak to the patient.
+CLINICAL_SYSTEM_PROMPT = """You are a clinical intake agent behind a voice assistant. Execute exactly ONE tool per request.
 
-Typical call flow:
-1. register_patient — when you receive name, phone, DOB, and reason for calling
-2. record_symptoms — when you receive symptom details (what, when, severity)
-3. Based on triage result:
-   - emergency → tell the voice assistant to instruct 911
-   - urgent/semi-urgent → transfer_to_nurse
-   - routine → provide self-care advice via the voice assistant
-4. find_nearby_facility — if the patient needs to visit somewhere
+Which tool to call:
+- Patient gave phone number → create_encounter
+- Patient gave name + DOB → match_patient (needs encounter_id)
+- Patient described complaint, symptoms, severity, or onset → update_encounter (needs encounter_id)
+- Symptoms and severity recorded, ready for assessment → triage_symptoms (needs encounter_id)
+- Patient needs to find a facility → find_nearby_facility
+- Triage says urgent/emergency, needs a nurse → transfer_to_nurse (needs encounter_id)
 
-Rules:
-- Always call at least one tool per request.
-- If a field is missing, return {"missing": ["field_name"]} so the voice assistant can ask.
-- Return only a short speakable summary (under 30 words) after tool execution.
-- No markdown, no bullet points, no explanations."""
+If required fields are missing, return {"missing": ["field_name"]}.
+After calling the tool, return ONLY a speakable summary under 30 words. No markdown."""
