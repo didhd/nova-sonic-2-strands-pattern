@@ -73,14 +73,30 @@ class StrandsAgent:
 
         try:
             logger.info("[%s:%s] query: %s", session_id, tier, input_text[:300])
+
+            prev_tool_count = 0
+            try:
+                for msg in agent.messages:
+                    if msg.get("role") == "assistant":
+                        for block in msg.get("content", []):
+                            if "toolUse" in block:
+                                prev_tool_count += 1
+            except Exception:
+                pass
+
             result = agent(input_text)
             output = str(result)
 
             tools_called = []
             try:
-                for block in result.message.get("content", []):
-                    if "toolUse" in block:
-                        tools_called.append(block["toolUse"]["name"])
+                current_idx = 0
+                for msg in agent.messages:
+                    if msg.get("role") == "assistant":
+                        for block in msg.get("content", []):
+                            if "toolUse" in block:
+                                current_idx += 1
+                                if current_idx > prev_tool_count:
+                                    tools_called.append(block["toolUse"]["name"])
             except Exception:
                 pass
 
