@@ -156,7 +156,7 @@ export default function SpeechToSpeech() {
       if (ev.toolResult) {
         const tid = ev.toolResult.toolUseId;
         const toolsCalled: string[] = ev.toolResult.toolsCalled || [];
-        const routedTo = toolsCalled.length > 0 ? toolsCalled.join(" → ") : "none";
+        const routedTo = toolsCalled.length > 0 ? toolsCalled.join(" → ") : "info_only";
 
         setToolInvocations((prev) =>
           prev.map((t) => t.id === tid ? { ...t, status: "done", routedTo } : t)
@@ -329,10 +329,10 @@ export default function SpeechToSpeech() {
                       },
                       { id: "time", header: "Time", cell: (item: ToolInvocation) => item.timestamp, width: 100 },
                       { id: "routed", header: "Routed To", cell: (item: ToolInvocation) => (
-                        item.routedTo && item.routedTo !== "none"
+                        item.routedTo && item.routedTo !== "info_only"
                           ? <Badge color="green">{item.routedTo}</Badge>
-                          : item.status === "running" ? <Badge color="grey">pending</Badge> : <Badge color="grey">none</Badge>
-                      ), width: 180 },
+                          : item.status === "running" ? <Badge color="grey">pending</Badge> : <Badge color="blue">info_only</Badge>
+                      ), width: 280 },
                       { id: "input", header: "Input", cell: (item: ToolInvocation) => <Box variant="small">{item.input.slice(0, 120)}{item.input.length > 120 ? "..." : ""}</Box> },
                     ]}
                     items={toolInvocations}
