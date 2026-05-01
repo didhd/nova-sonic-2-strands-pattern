@@ -105,6 +105,14 @@ async def websocket_handler(request):
 
         is_active = False
 
+    async def send_text_to_sonic(pn, text):
+        log.info("Sending text to Sonic: %s", text[:80])
+        cn = str(uuid.uuid4())
+        await bedrock.send_event(stream, S2sEvent.content_start_text(pn, cn, True, "USER"))
+        await bedrock.send_event(stream, S2sEvent.text_input(pn, cn, text))
+        await bedrock.send_event(stream, S2sEvent.content_end(pn, cn))
+        log.info("Text sent to Sonic")
+
     async def handle_tool_use(pn, current_tool_use_id, current_tool_name, current_tool_content):
         log.info("Processing tool: %s (id=%s)", current_tool_name, current_tool_use_id)
 
@@ -115,6 +123,7 @@ async def websocket_handler(request):
                 result = {"result": datetime.now(timezone.utc).strftime("%A, %Y-%m-%d %H:%M:%S UTC")}
             elif tn == "externalagent":
                 if STRANDS_AGENT:
+                    await send_text_to_sonic(pn, "Just say 'One moment please' while I process this.")
                     content = current_tool_content.get("content", "") if isinstance(current_tool_content, dict) else ""
                     if isinstance(content, str):
                         try:

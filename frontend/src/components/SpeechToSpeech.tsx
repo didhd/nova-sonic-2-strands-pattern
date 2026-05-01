@@ -70,10 +70,12 @@ const DEFAULT_PROMPT =
   "7. Ask severity 1-10.\n" +
   "8. Ask about other symptoms. Once answered → say 'Let me check' → call externalAgent.\n" +
   "9. Share the triage result. If urgent → call externalAgent to transfer.\n\n" +
-  "Rules:\n" +
-  "- ONE question per response. Short sentences only.\n" +
-  "- Call externalAgent at steps 2, 4, 5, 8, and 9.\n" +
-  "- Always say a brief hold message before each tool call.";
+  "When to call externalAgent:\n" +
+  "- ONLY when the patient has ACTUALLY given you concrete data.\n" +
+  "- Include the real data in the query (e.g., 'Phone: 415-555-1234').\n" +
+  "- Do NOT call with meta descriptions like 'phone number request'.\n" +
+  "- Say a brief hold message before each tool call.\n" +
+  "- ONE question per response. Short sentences only.";
 
 export default function SpeechToSpeech() {
   const [isStreaming, setIsStreaming] = useState(false);
@@ -129,6 +131,7 @@ export default function SpeechToSpeech() {
           setIsUserThinking(true);
         } else if (ev.contentStart.type === "AUDIO" && ev.contentStart.role === "ASSISTANT") {
           setIsUserThinking(false);
+          setIsAssistantThinking(false);
         }
       }
 
